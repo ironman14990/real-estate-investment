@@ -1,15 +1,17 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 import os
 from motor.motor_asyncio import AsyncIOMotorClient
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
+import asyncio
+import json
 
 app = FastAPI(title="Real Estate Investment Sourcing API")
 
@@ -31,7 +33,7 @@ else:
     client = None
     db = None
 
-# Mock data for realistic properties
+# Enhanced mock data with multi-family properties and market data
 MOCK_PROPERTIES = [
     {
         "id": str(uuid.uuid4()),
@@ -55,7 +57,14 @@ MOCK_PROPERTIES = [
         "image_url": "https://images.unsplash.com/photo-1568605114967-8130f3a36994?w=500",
         "description": "Solid investment opportunity in growing Atlanta market. Needs cosmetic updates.",
         "listing_agent": "Sarah Johnson",
-        "listing_date": "2024-02-15"
+        "listing_date": "2024-02-15",
+        "market_trends": {
+            "appreciation_rate": 8.2,
+            "market_type": "Buyer's Market",
+            "days_on_market_avg": 52,
+            "price_trend": "Increasing",
+            "rental_demand": "High"
+        }
     },
     {
         "id": str(uuid.uuid4()),
@@ -79,7 +88,14 @@ MOCK_PROPERTIES = [
         "image_url": "https://images.unsplash.com/photo-1570129477492-45c003edd2be?w=500",
         "description": "Modern home in desirable Phoenix suburb. Great rental potential.",
         "listing_agent": "Mike Rodriguez",
-        "listing_date": "2024-02-28"
+        "listing_date": "2024-02-28",
+        "market_trends": {
+            "appreciation_rate": 12.5,
+            "market_type": "Seller's Market",
+            "days_on_market_avg": 28,
+            "price_trend": "Rapidly Increasing",
+            "rental_demand": "Very High"
+        }
     },
     {
         "id": str(uuid.uuid4()),
@@ -103,7 +119,14 @@ MOCK_PROPERTIES = [
         "image_url": "https://images.unsplash.com/photo-1564013799919-ab600027ffc6?w=500",
         "description": "Excellent cash flow opportunity in established Cleveland neighborhood.",
         "listing_agent": "Linda Thompson",
-        "listing_date": "2024-01-20"
+        "listing_date": "2024-01-20",
+        "market_trends": {
+            "appreciation_rate": 4.8,
+            "market_type": "Buyer's Market",
+            "days_on_market_avg": 78,
+            "price_trend": "Stable",
+            "rental_demand": "Moderate"
+        }
     },
     {
         "id": str(uuid.uuid4()),
@@ -127,7 +150,14 @@ MOCK_PROPERTIES = [
         "image_url": "https://images.unsplash.com/photo-1605146769289-440113cc3d00?w=500",
         "description": "Great starter investment property with solid rental history.",
         "listing_agent": "Robert Davis",
-        "listing_date": "2024-02-10"
+        "listing_date": "2024-02-10",
+        "market_trends": {
+            "appreciation_rate": 6.3,
+            "market_type": "Balanced Market",
+            "days_on_market_avg": 45,
+            "price_trend": "Slowly Increasing",
+            "rental_demand": "High"
+        }
     },
     {
         "id": str(uuid.uuid4()),
@@ -151,7 +181,14 @@ MOCK_PROPERTIES = [
         "image_url": "https://images.unsplash.com/photo-1518780664697-55e3ad937233?w=500",
         "description": "Move-in ready property in growing Jacksonville market.",
         "listing_agent": "Jennifer Wilson",
-        "listing_date": "2024-03-01"
+        "listing_date": "2024-03-01",
+        "market_trends": {
+            "appreciation_rate": 9.7,
+            "market_type": "Seller's Market",
+            "days_on_market_avg": 25,
+            "price_trend": "Increasing",
+            "rental_demand": "Very High"
+        }
     },
     {
         "id": str(uuid.uuid4()),
@@ -175,9 +212,122 @@ MOCK_PROPERTIES = [
         "image_url": "https://images.unsplash.com/photo-1583608205776-bfd35f0d9f83?w=500",
         "description": "Spacious home with great flip potential in Birmingham market.",
         "listing_agent": "David Brown",
-        "listing_date": "2024-01-28"
+        "listing_date": "2024-01-28",
+        "market_trends": {
+            "appreciation_rate": 5.4,
+            "market_type": "Buyer's Market",
+            "days_on_market_avg": 65,
+            "price_trend": "Stable",
+            "rental_demand": "Moderate"
+        }
+    },
+    # Multi-family properties
+    {
+        "id": str(uuid.uuid4()),
+        "address": "1122 Duplex Dr, Atlanta, GA 30315",
+        "city": "Atlanta",
+        "state": "GA",
+        "zipcode": "30315",
+        "price": 285000,
+        "bedrooms": 6,
+        "bathrooms": 4,
+        "sqft": 2400,
+        "property_type": "Multi Family",
+        "units": 2,
+        "year_built": 1998,
+        "estimated_rent": 3200,
+        "estimated_arv": 380000,
+        "estimated_repair_cost": 45000,
+        "neighborhood_quality": "B",
+        "days_on_market": 38,
+        "property_taxes": 4800,
+        "hoa_fees": 0,
+        "image_url": "https://images.unsplash.com/photo-1560448204-e02f11c3d0e2?w=500",
+        "description": "Excellent duplex investment with separate utilities and entrances.",
+        "listing_agent": "Michael Chen",
+        "listing_date": "2024-02-20",
+        "market_trends": {
+            "appreciation_rate": 8.8,
+            "market_type": "Seller's Market",
+            "days_on_market_avg": 42,
+            "price_trend": "Increasing",
+            "rental_demand": "Very High"
+        }
+    },
+    {
+        "id": str(uuid.uuid4()),
+        "address": "5544 Fourplex Ave, Phoenix, AZ 85021",
+        "city": "Phoenix",
+        "state": "AZ",
+        "zipcode": "85021",
+        "price": 520000,
+        "bedrooms": 8,
+        "bathrooms": 4,
+        "sqft": 3200,
+        "property_type": "Multi Family",
+        "units": 4,
+        "year_built": 2000,
+        "estimated_rent": 4800,
+        "estimated_arv": 650000,
+        "estimated_repair_cost": 35000,
+        "neighborhood_quality": "B+",
+        "days_on_market": 29,
+        "property_taxes": 7200,
+        "hoa_fees": 0,
+        "image_url": "https://images.unsplash.com/photo-1582268611958-ebfd161ef9cf?w=500",
+        "description": "4-unit apartment building in growing Phoenix market. Excellent cash flow.",
+        "listing_agent": "Lisa Rodriguez",
+        "listing_date": "2024-02-25",
+        "market_trends": {
+            "appreciation_rate": 13.2,
+            "market_type": "Seller's Market",
+            "days_on_market_avg": 32,
+            "price_trend": "Rapidly Increasing",
+            "rental_demand": "Extremely High"
+        }
+    },
+    {
+        "id": str(uuid.uuid4()),
+        "address": "3388 Triplex Ct, Cleveland, OH 44105",
+        "city": "Cleveland",
+        "state": "OH",
+        "zipcode": "44105",
+        "price": 165000,
+        "bedrooms": 9,
+        "bathrooms": 3,
+        "sqft": 2700,
+        "property_type": "Multi Family",
+        "units": 3,
+        "year_built": 1965,
+        "estimated_rent": 2700,
+        "estimated_arv": 220000,
+        "estimated_repair_cost": 30000,
+        "neighborhood_quality": "C+",
+        "days_on_market": 72,
+        "property_taxes": 3600,
+        "hoa_fees": 0,
+        "image_url": "https://images.unsplash.com/photo-1545324418-cc1a3fa10c00?w=500",
+        "description": "Cash flowing triplex with long-term tenants in place.",
+        "listing_agent": "Robert Kim",
+        "listing_date": "2024-01-15",
+        "market_trends": {
+            "appreciation_rate": 5.1,
+            "market_type": "Buyer's Market",
+            "days_on_market_avg": 85,
+            "price_trend": "Stable",
+            "rental_demand": "High"
+        }
     }
 ]
+
+# Email configuration
+EMAIL_CONFIG = {
+    "smtp_server": os.environ.get("SMTP_SERVER", "smtp.gmail.com"),
+    "smtp_port": int(os.environ.get("SMTP_PORT", 587)),
+    "email_user": os.environ.get("EMAIL_USER", ""),
+    "email_password": os.environ.get("EMAIL_PASSWORD", ""),
+    "from_email": os.environ.get("FROM_EMAIL", "")
+}
 
 # Pydantic models
 class PropertyFilter(BaseModel):
@@ -187,7 +337,7 @@ class PropertyFilter(BaseModel):
     state: Optional[str] = None
     min_bedrooms: Optional[int] = None
     property_type: Optional[str] = None
-    investment_type: Optional[str] = None  # "flip", "rental", "both"
+    investment_type: Optional[str] = None
 
 class UserCriteria(BaseModel):
     id: Optional[str] = None
@@ -196,12 +346,26 @@ class UserCriteria(BaseModel):
     criteria: PropertyFilter
     alert_enabled: bool = True
 
-class InvestmentAnalysis(BaseModel):
-    property_id: str
-    flip_analysis: dict
-    rental_analysis: dict
-    recommendation: str
+class DealCalculatorInput(BaseModel):
+    purchase_price: float
+    down_payment_percent: float = 20
+    interest_rate: float = 7.0
+    loan_term_years: int = 30
+    monthly_rent: float
+    estimated_expenses: float
+    repair_costs: float = 0
+    arv: Optional[float] = None
 
+class MarketAnalysis(BaseModel):
+    city: str
+    state: str
+    appreciation_rate: float
+    market_type: str
+    avg_days_on_market: int
+    price_trend: str
+    rental_demand: str
+
+# Utility functions
 def calculate_flip_analysis(property_data):
     """Calculate flip investment analysis using 70% rule"""
     price = property_data["price"]
@@ -286,6 +450,33 @@ def calculate_rental_analysis(property_data):
         "recommendation": "Good Rental" if meets_1_percent_rule and cash_on_cash_return > 8 else "Review Required"
     }
 
+async def send_email_alert(to_email: str, subject: str, body: str):
+    """Send email alert"""
+    try:
+        if not EMAIL_CONFIG["email_user"] or not EMAIL_CONFIG["email_password"]:
+            print("Email configuration not complete, skipping email send")
+            return False
+            
+        msg = MIMEMultipart()
+        msg['From'] = EMAIL_CONFIG["from_email"] or EMAIL_CONFIG["email_user"]
+        msg['To'] = to_email
+        msg['Subject'] = subject
+        
+        msg.attach(MIMEText(body, 'html'))
+        
+        server = smtplib.SMTP(EMAIL_CONFIG["smtp_server"], EMAIL_CONFIG["smtp_port"])
+        server.starttls()
+        server.login(EMAIL_CONFIG["email_user"], EMAIL_CONFIG["email_password"])
+        text = msg.as_string()
+        server.sendmail(EMAIL_CONFIG["email_user"], to_email, text)
+        server.quit()
+        
+        return True
+    except Exception as e:
+        print(f"Error sending email: {e}")
+        return False
+
+# API Endpoints
 @app.get("/api/health")
 async def health_check():
     return {"status": "healthy", "message": "Real Estate Investment API is running"}
@@ -409,6 +600,157 @@ async def save_user_criteria(criteria: UserCriteria):
         "criteria": criteria.dict()
     }
 
+@app.post("/api/send-alert")
+async def send_property_alert(background_tasks: BackgroundTasks, email: str, properties: List[Dict]):
+    """Send property alert email"""
+    if not properties:
+        raise HTTPException(status_code=400, detail="No properties to alert about")
+    
+    # Create email content
+    subject = f"🏠 New Investment Properties Found ({len(properties)} properties)"
+    
+    html_body = f"""
+    <html>
+    <body>
+        <h2>New Investment Properties Found!</h2>
+        <p>We found {len(properties)} new properties that match your investment criteria:</p>
+        <ul>
+    """
+    
+    for prop in properties:
+        html_body += f"""
+            <li>
+                <strong>{prop['address']}</strong> - {prop['price']:,}<br>
+                {prop['bedrooms']} bed, {prop['bathrooms']} bath, {prop['property_type']}<br>
+                Investment Recommendation: <strong>{prop.get('investment_recommendation', 'Review Required')}</strong>
+            </li>
+        """
+    
+    html_body += """
+        </ul>
+        <p>Happy investing!</p>
+    </body>
+    </html>
+    """
+    
+    # Send email in background
+    background_tasks.add_task(send_email_alert, email, subject, html_body)
+    
+    return {"message": "Alert email queued for sending"}
+
+@app.post("/api/calculate-deal")
+async def calculate_deal(input_data: DealCalculatorInput):
+    """Advanced deal calculator"""
+    
+    # Loan calculations
+    loan_amount = input_data.purchase_price * (1 - input_data.down_payment_percent / 100)
+    down_payment = input_data.purchase_price * (input_data.down_payment_percent / 100)
+    
+    # Monthly payment calculation
+    monthly_rate = input_data.interest_rate / 100 / 12
+    num_payments = input_data.loan_term_years * 12
+    
+    if monthly_rate > 0:
+        monthly_payment = loan_amount * (monthly_rate * (1 + monthly_rate)**num_payments) / ((1 + monthly_rate)**num_payments - 1)
+    else:
+        monthly_payment = loan_amount / num_payments
+    
+    # Cash flow analysis
+    monthly_cash_flow = input_data.monthly_rent - monthly_payment - input_data.estimated_expenses
+    annual_cash_flow = monthly_cash_flow * 12
+    
+    # ROI calculations
+    total_cash_invested = down_payment + input_data.repair_costs
+    cash_on_cash_return = (annual_cash_flow / total_cash_invested) * 100 if total_cash_invested > 0 else 0
+    
+    # Cap rate (if no financing)
+    net_operating_income = (input_data.monthly_rent * 12) - (input_data.estimated_expenses * 12)
+    cap_rate = (net_operating_income / input_data.purchase_price) * 100
+    
+    # Flip analysis (if ARV provided)
+    flip_analysis = None
+    if input_data.arv:
+        max_purchase_70_rule = (input_data.arv * 0.70) - input_data.repair_costs
+        total_investment = input_data.purchase_price + input_data.repair_costs
+        potential_profit = input_data.arv - total_investment
+        flip_roi = (potential_profit / total_investment) * 100 if total_investment > 0 else 0
+        
+        flip_analysis = {
+            "arv": input_data.arv,
+            "max_purchase_70_rule": max_purchase_70_rule,
+            "meets_70_rule": input_data.purchase_price <= max_purchase_70_rule,
+            "total_investment": total_investment,
+            "potential_profit": potential_profit,
+            "flip_roi": round(flip_roi, 2)
+        }
+    
+    return {
+        "purchase_price": input_data.purchase_price,
+        "down_payment": round(down_payment, 2),
+        "loan_amount": round(loan_amount, 2),
+        "monthly_payment": round(monthly_payment, 2),
+        "monthly_cash_flow": round(monthly_cash_flow, 2),
+        "annual_cash_flow": round(annual_cash_flow, 2),
+        "cash_on_cash_return": round(cash_on_cash_return, 2),
+        "cap_rate": round(cap_rate, 2),
+        "total_cash_invested": round(total_cash_invested, 2),
+        "flip_analysis": flip_analysis
+    }
+
+@app.get("/api/market-analysis")
+async def get_market_analysis(city: Optional[str] = None, state: Optional[str] = None):
+    """Get market analysis for cities"""
+    
+    # Aggregate market data from properties
+    market_data = {}
+    
+    for prop in MOCK_PROPERTIES:
+        key = f"{prop['city']}, {prop['state']}"
+        if key not in market_data:
+            market_data[key] = {
+                "city": prop["city"],
+                "state": prop["state"],
+                "properties": [],
+                "market_trends": prop["market_trends"]
+            }
+        market_data[key]["properties"].append(prop)
+    
+    # Calculate aggregated metrics
+    for market in market_data.values():
+        props = market["properties"]
+        market["total_properties"] = len(props)
+        market["avg_price"] = sum(p["price"] for p in props) / len(props)
+        market["avg_rent"] = sum(p["estimated_rent"] for p in props) / len(props)
+        market["avg_price_per_sqft"] = sum(p["price"] / p["sqft"] for p in props) / len(props)
+        market["avg_rent_yield"] = (market["avg_rent"] * 12 / market["avg_price"]) * 100
+        
+        # Property type breakdown
+        single_family = len([p for p in props if p["property_type"] == "Single Family"])
+        multi_family = len([p for p in props if p["property_type"] == "Multi Family"])
+        
+        market["property_type_breakdown"] = {
+            "single_family": single_family,
+            "multi_family": multi_family,
+            "single_family_percent": (single_family / len(props)) * 100,
+            "multi_family_percent": (multi_family / len(props)) * 100
+        }
+    
+    # Filter by city/state if provided
+    if city or state:
+        filtered_markets = {}
+        for key, market in market_data.items():
+            if city and city.lower() != market["city"].lower():
+                continue
+            if state and state.lower() != market["state"].lower():
+                continue
+            filtered_markets[key] = market
+        market_data = filtered_markets
+    
+    return {
+        "markets": list(market_data.values()),
+        "total_markets": len(market_data)
+    }
+
 @app.get("/api/markets")
 async def get_markets():
     """Get available markets/cities"""
@@ -421,7 +763,8 @@ async def get_markets():
                 "state": prop["state"],
                 "property_count": 0,
                 "avg_price": 0,
-                "avg_rent": 0
+                "avg_rent": 0,
+                "market_trends": prop["market_trends"]
             }
         markets[city_state]["property_count"] += 1
     
